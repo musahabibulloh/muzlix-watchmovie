@@ -9,7 +9,28 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:build": "vite build && electron-builder"
+    "electron:build": "npm run build --prefix api && vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.muzlix.app",
+    "productName": "Muzlix",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "api/**/*",
+      "!api/node_modules/**/test/**/*",
+      "!api/node_modules/**/tests/**/*"
+    ],
+    "asarUnpack": [
+      "api/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/logo.png"
+    }
   },
   "dependencies": {
     "axios": "^1.16.1",

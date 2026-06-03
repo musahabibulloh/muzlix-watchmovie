@@ -175,5 +175,41 @@ export const scrapeSeriesDetails = async (
 
     obj['seasons'] = seasons;
 
+    // Handle new JSON data structure from the updated website layout
+    const historyDataText = $('#watch-history-data').text();
+    const seasonDataText = $('#season-data').text();
+    
+    if (historyDataText && seasonDataText) {
+        try {
+            const historyData = JSON.parse(historyDataText);
+            const seasonData = JSON.parse(seasonDataText);
+            
+            if (historyData.title) obj['title'] = historyData.title;
+            if (historyData.poster) obj['posterImg'] = historyData.poster;
+            if (historyData.rating) obj['rating'] = historyData.rating;
+            if (historyData.year) obj['releaseDate'] = historyData.year.toString();
+            
+            const newSeasons: ISeasonsList[] = [];
+            for (const [seasonNum, episodes] of Object.entries(seasonData)) {
+                newSeasons.push({
+                    season: Number(seasonNum),
+                    totalEpisodes: Array.isArray(episodes) ? episodes.length : 0
+                });
+            }
+            
+            if (newSeasons.length > 0) {
+                obj['seasons'] = newSeasons;
+            }
+            
+            const footerDesc = $('footer .column h4:contains("Series")').next('p').text();
+            if (footerDesc) {
+                obj['synopsis'] = footerDesc;
+            }
+            
+        } catch (e) {
+            console.error('Failed to parse series JSON data', e);
+        }
+    }
+
     return obj;
 };

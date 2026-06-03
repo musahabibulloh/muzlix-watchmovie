@@ -1,0 +1,37 @@
+name: Build Muzlix Desktop
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install Root Dependencies
+      run: npm install
+
+    - name: Install API Dependencies
+      run: npm install
+      working-directory: ./api
+
+    - name: Build and Package Electron App
+      run: npm run electron:build
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload Installer as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: muzlix-windows-installer
+        path: release/*.exe

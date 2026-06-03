@@ -16,6 +16,10 @@ export default function App() {
   const [movieDetails, setMovieDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [isPlayingOverlay, setIsPlayingOverlay] = useState(false);
+  const [selectedServerIndex, setSelectedServerIndex] = useState(0);
+
+  const [selectedSeason, setSelectedSeason] = useState(1);
+  const [selectedEpisode, setSelectedEpisode] = useState(1);
 
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -27,9 +31,43 @@ export default function App() {
   const [activeGenre, setActiveGenre] = useState('');
 
   useEffect(() => {
-    fetchMovies(1);
-    fetchGenres();
+    const handleContextMenu = (e: any) => e.preventDefault();
+    document.addEventListener('contextmenu', handleContextMenu);
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+
+    let isMounted = true;
+    const fetchInitialData = async () => {
+      setLoading(true);
+      let retries = 6;
+      while (retries > 0 && isMounted) {
+        try {
+          await axios.get(`${API_BASE_URL}/genres`);
+          if (isMounted) {
+            fetchGenres();
+            fetchMovies(1);
+          }
+          break;
+        } catch (err) {
+          retries--;
+          if (retries > 0) {
+            await new Promise(r => setTimeout(r, 1000));
+          } else if (isMounted) {
+            setLoading(false);
+          }
+        }
+      }
+    };
+
+    fetchInitialData();
+
+    return () => { isMounted = false; };
+  }, [isUnlocked]);
 
   const fetchGenres = async () => {
     try {
@@ -125,16 +163,31 @@ export default function App() {
     }
   };
 
-  const handleMovieClick = async (movieId) => {
+  const handleMovieClick = async (movieId, type = 'movie') => {
     try {
       setSelectedMovie(movieId);
       setIsPlayingOverlay(false);
+      setSelectedServerIndex(0);
+      setSelectedSeason(1);
+      setSelectedEpisode(1);
       setDetailsLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/movies/${movieId}`);
-      const details = response.data.data || response.data;
+      let endpointPrefix = type === 'series' ? 'series' : 'movies';
+      let details = null;
+
+      try {
+        const response = await axios.get(`${API_BASE_URL}/${endpointPrefix}/${movieId}`);
+        details = response.data.data || response.data;
+      } catch (err) {
+        // Fallback: if we guessed 'movies' but it's actually a 'series' (or vice versa), try the other endpoint
+        endpointPrefix = endpointPrefix === 'movies' ? 'series' : 'movies';
+        const fallbackResponse = await axios.get(`${API_BASE_URL}/${endpointPrefix}/${movieId}`);
+        details = fallbackResponse.data.data || fallbackResponse.data;
+      }
+
+      if (!details) throw new Error("Details not found");
       
       try {
-        const streamResponse = await axios.get(`${API_BASE_URL}/movies/${movieId}/streams`);
+        const streamResponse = await axios.get(`${API_BASE_URL}/${endpointPrefix}/${movieId}/streams`);
         const streams = streamResponse.data.data || streamResponse.data || [];
         details.movieUrls = streams.map((s: any) => s.url).filter(Boolean);
       } catch (err) {
@@ -150,9 +203,26 @@ export default function App() {
     }
   };
 
+  const fetchSeriesStreams = async (season, episode) => {
+    try {
+      setIsPlayingOverlay(false);
+      const streamResponse = await axios.get(`${API_BASE_URL}/series/${selectedMovie}/streams?season=${season}&episode=${episode}`);
+      const streams = streamResponse.data.data || streamResponse.data || [];
+      const newUrls = streams.map((s: any) => s.url).filter(Boolean);
+      setMovieDetails(prev => ({...prev, movieUrls: newUrls}));
+      setSelectedServerIndex(0);
+      setIsPlayingOverlay(true);
+    } catch (err) {
+      console.error("Error fetching series streams:", err);
+    }
+  };
+
   const goBack = () => {
     setSelectedMovie(null);
     setMovieDetails(null);
+    setSelectedServerIndex(0);
+    setSelectedSeason(1);
+    setSelectedEpisode(1);
   };
 
   const handleUnlock = (e: any) => {
@@ -275,7 +345,7 @@ export default function App() {
                   <div className="bg-[#000000] w-full aspect-video rounded-[2rem] overflow-hidden relative shadow-inner border border-gray-900">
                     {isPlayingOverlay && movieDetails.movieUrls && movieDetails.movieUrls.length > 0 ? (
                       <iframe 
-                        src={movieDetails.movieUrls[0]} 
+                        src={movieDetails.movieUrls[selectedServerIndex]} 
                         className="absolute inset-0 w-full h-full border-0"
                         allowFullScreen
                       ></iframe>
@@ -318,6 +388,70 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* Server Selection */}
+              {movieDetails.movieUrls && movieDetails.movieUrls.length > 1 && (
+                <div className="w-full max-w-3xl mx-auto flex flex-col items-center mt-6 mb-8 relative z-20">
+                  <h3 className="text-sm font-bold text-gray-500 mb-4 tracking-[0.2em] uppercase">Pilih Server Streaming</h3>
+                  <div className="flex flex-wrap justify-center gap-3">
+                    {movieDetails.movieUrls.map((url, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setSelectedServerIndex(index)}
+                        className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+                          selectedServerIndex === index 
+                            ? 'bg-[#e50914] text-white shadow-[0_4px_15px_rgba(229,9,20,0.4)] border border-[#e50914]' 
+                            : 'bg-gray-900/60 text-gray-400 hover:bg-gray-800 hover:text-white border border-gray-800/80'
+                        }`}
+                      >
+                        Server {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Series Season/Episode Selection */}
+              {movieDetails.type === 'series' && movieDetails.seasons && movieDetails.seasons.length > 0 && (
+                <div className="w-full max-w-4xl mx-auto flex flex-col items-center mt-2 mb-8 relative z-20 bg-[#121212] p-6 rounded-[2rem] border border-gray-800/60 shadow-xl">
+                  <h3 className="text-sm font-bold text-gray-400 mb-4 tracking-[0.2em] uppercase">Pilih Episode</h3>
+                  <div className="flex flex-col md:flex-row gap-6 w-full items-start">
+                    <select 
+                      className="bg-[#1a1a1a] text-white border border-gray-700 px-4 py-3 rounded-xl focus:outline-none focus:border-[#e50914] min-w-[150px] font-semibold"
+                      value={selectedSeason}
+                      onChange={(e) => {
+                        const newS = Number(e.target.value);
+                        setSelectedSeason(newS);
+                        setSelectedEpisode(1);
+                        fetchSeriesStreams(newS, 1);
+                      }}
+                    >
+                      {movieDetails.seasons.map(s => (
+                        <option key={s.season} value={s.season}>Season {s.season}</option>
+                      ))}
+                    </select>
+                    
+                    <div className="flex flex-wrap gap-2 flex-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                      {Array.from({ length: (movieDetails.seasons.find(s => s.season === selectedSeason)?.totalEpisodes || 1) }).map((_, i) => (
+                        <button
+                          key={i+1}
+                          onClick={() => {
+                            setSelectedEpisode(i+1);
+                            fetchSeriesStreams(selectedSeason, i+1);
+                          }}
+                          className={`w-12 h-12 rounded-xl font-bold flex items-center justify-center transition-all ${
+                            selectedEpisode === i+1 
+                              ? 'bg-[#e50914] text-white shadow-lg shadow-red-900/30' 
+                              : 'bg-[#1a1a1a] text-gray-400 hover:bg-gray-800 hover:text-white border border-gray-800'
+                          }`}
+                        >
+                          {i+1}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Movie Synopsis */}
               {movieDetails.synopsis && (
@@ -402,7 +536,7 @@ export default function App() {
               </p>
               <div className="flex flex-wrap gap-4">
                 <button 
-                  onClick={() => handleMovieClick(featuredMovie._id)} 
+                  onClick={() => handleMovieClick(featuredMovie._id, featuredMovie.type)} 
                   className="bg-[#e50914] hover:bg-[#f40612] text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 transition-all shadow-lg shadow-red-900/30"
                 >
                   <Play fill="currentColor" size={20} /> WATCH
@@ -496,7 +630,7 @@ export default function App() {
                  return (
                   <div 
                     key={movie._id || movie.id || index} 
-                    onClick={() => handleMovieClick(movie._id || movie.id)}
+                    onClick={() => handleMovieClick(movie._id || movie.id, movie.type)}
                     className="group flex flex-col cursor-pointer"
                   >
                     <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#141414] rounded-xl mb-4 transition-transform duration-300 group-hover:scale-105 group-hover:shadow-[0_0_20px_rgba(229,9,20,0.3)]">

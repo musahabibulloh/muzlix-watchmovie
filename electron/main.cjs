@@ -73,32 +73,25 @@ function createWindow() {
     });
   });
 
-  // Block popups and new windows (often triggered by ad clicks on streaming sites)
-  mainWindow.webContents.setWindowOpenHandler(() => {
-    return { action: 'deny' };
+  // Bypass Anti-Adblock popup detection by allowing the window but making it invisible and closing it instantly
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    return { 
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        show: false, // Create popup invisibly
+        width: 0,
+        height: 0
+      }
+    };
   });
 
-  // Block common ad networks and tracking scripts
-  const adBlockPatterns = [
-    '*://*.doubleclick.net/*',
-    '*://*.googleadservices.com/*',
-    '*://*.googlesyndication.com/*',
-    '*://*.popads.net/*',
-    '*://*.popcash.net/*',
-    '*://*.exoclick.com/*',
-    '*://*.propellerads.com/*',
-    '*://*.onclickads.net/*',
-    '*://*.histats.com/*',
-    '*://*.adsterratools.com/*',
-    '*://*.profitabledisplaynetwork.com/*',
-    '*://*.highcpmrevenuenetwork.com/*',
-    '*://*.clksite.com/*',
-    '*://*.realsrv.com/*',
-  ];
-
-  session.defaultSession.webRequest.onBeforeRequest({ urls: adBlockPatterns }, (details, callback) => {
-    callback({ cancel: true });
+  mainWindow.webContents.on('did-create-window', (childWindow) => {
+    // Instantly close the invisible ad popup so the user never sees it
+    childWindow.close();
   });
+
+  // Removed network-level ad blocker to prevent Anti-Adblock detection.
+  // The invisible popup closer above is enough to protect the user from intrusive ads.
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
